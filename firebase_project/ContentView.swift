@@ -14,14 +14,13 @@ struct ContentView: View {
     let db = Firestore.firestore()
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
-                // Simplified background (black)
+                // Background color
                 Color.black
                     .ignoresSafeArea()
                 
                 VStack(spacing: 20) {
-                    
                     if isLoggedIn {
                         Text("Welcome,\n \(userName)!")
                             .foregroundColor(.white)
@@ -107,7 +106,6 @@ struct ContentView: View {
                                 .cornerRadius(10)
                                 .frame(width: 350)
                             
-                            // Show error message if login fails
                             if let errorMessage = errorMessage {
                                 Text(errorMessage)
                                     .foregroundColor(.red)
@@ -140,10 +138,9 @@ struct ContentView: View {
                     }
                 }
                 .frame(width: 350)
-                
-                NavigationLink(destination: MainView(), isActive: $isLoggedIn) {
-                    EmptyView()
-                }
+            }
+            .navigationDestination(isPresented: $isLoggedIn) {
+                MainView()
             }
         }
     }
@@ -152,7 +149,7 @@ struct ContentView: View {
         Auth.auth().createUser(withEmail: email, password: password) { result, error in
             if let error = error {
                 print("Error creating user: \(error.localizedDescription)")
-                errorMessage = error.localizedDescription // Set error message
+                errorMessage = error.localizedDescription
             } else {
                 let userRef = db.collection("users").document(result!.user.uid)
                 userRef.setData([
@@ -161,9 +158,8 @@ struct ContentView: View {
                 ]) { err in
                     if let err = err {
                         print("Error saving user data: \(err.localizedDescription)")
-                        errorMessage = err.localizedDescription // Set error message
+                        errorMessage = err.localizedDescription
                     } else {
-                        print("User created and data saved to Firestore")
                         isLoggedIn = true
                         userName = name
                     }
@@ -173,27 +169,52 @@ struct ContentView: View {
     }
     
     func login() {
+        // Show loading state (if applicable in your app)
+        errorMessage = nil
+
         Auth.auth().signIn(withEmail: email, password: password) { result, error in
             if let error = error {
                 print("Error signing in: \(error.localizedDescription)")
-                errorMessage = "Invalid credentials. Please try again." // Set error message
-            } else {
-                let userRef = db.collection("users").document(result!.user.uid)
-                userRef.getDocument { (document, error) in
-                    if let document = document, document.exists {
-                        if let userData = document.data() {
-                            userName = userData["name"] as? String ?? "Unknown"
-                            print("User signed in successfully: \(result?.user.email ?? "Unknown email")")
-                            isLoggedIn = true
-                        }
-                    } else {
-                        print("User data not found")
-                    }
+                self.errorMessage = "Invalid credentials. Please try again."
+                return
+            }
+            
+            guard let userId = result?.user.uid else {
+                self.errorMessage = "An unexpected error occurred. Please try again."
+                return
+            }
+            
+            // Fetch user data from Firestore
+            self.db.collection("users").document(userId).getDocument { document, error in
+                if let error = error {
+                    print("Error fetching user data: \(error.localizedDescription)")
+                    self.errorMessage = "Failed to fetch user data. Please try again later."
+                    return
+                }
+                
+                guard let document = document, document.exists else {
+                    print("User document does not exist.")
+                    self.errorMessage = "User data not found. Please contact support."
+                    return
+                }
+                
+                // Extract user name
+                if let name = document.data()?["name"] as? String {
+                    self.userName = name
+                    
+                    // Save userName locally
+                    UserDefaults.standard.set(name, forKey: "userName")
+                    UserDefaults.standard.synchronize()
+                    
+                    self.isLoggedIn = true
+                } else {
+                    print("Name field is missing in the user document.")
+                    self.errorMessage = "User name not found. Please contact support."
                 }
             }
         }
     }
-    
+
     func logOut() {
         do {
             try Auth.auth().signOut()
@@ -203,4 +224,7 @@ struct ContentView: View {
             print("Error logging out: \(error.localizedDescription)")
         }
     }
+}
+#Preview {
+    ContentView()
 }
